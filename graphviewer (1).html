@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GraphViewer — Web Version</title>
+
+<!-- Dygraphs för dataplottning och mätlinjal -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/dygraph/2.2.1/dygraph.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dygraph/2.2.1/dygraph.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg:            #14171c;
+    --panel:         #1c2027;
+    --panel-raised:  #232830;
+    --hairline:      #2e3440;
+    --text:          #e7eaf0;
+    --text-dim:      #838d9c;
+    --text-faint:    #545e6e;
+    --accent:        #4fd6c4;   /* signal teal */
+    --accent-dim:    #2c4a47;
+    --warn:          #e8a33d;   /* amber, for stale/paused state */
+    --danger:        #e0616f;
+    --led-on:        #57e0a0;
+    --led-off:       #3a4150;
+    --radius: 6px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: 'IBM Plex Sans', sans-serif;
+    margin: 0;
+    padding: 28px;
+    background:
+      radial-gradient(ellipse at top left, #1a1e25 0%, var(--bg) 55%);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  .container {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* ---- Nameplate header ---- */
+  .nameplate {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 4px 4px 14px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .nameplate h1 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 0;
+    color: var(--text);
+  }
+  .nameplate h1 span {
+    color: var(--accent);
+  }
+  .nameplate .tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+  }
+
+  .panel-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 0 0 12px;
+  }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: center;
+  }
+
+  .field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+  }
+  .field b {
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  /* buttons */
+  button {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--text);
+    background: var(--panel-raised);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    padding: 7px 14px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  button:active { transform: translateY(1px); }
+
+  input[type="file"] {
+    font-size: 0.82rem;
+    color: var(--text-dim);
+    max-width: 220px;
+  }
+  input[type="file"]::file-selector-button {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.78rem;
+    color: var(--text);
+    background: var(--panel-raised);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    padding: 6px 12px;
+    margin-right: 10px;
+    cursor: pointer;
+  }
+
+  input[type="number"] {
+    width: 68px;
+    padding: 5px 7px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+  }
+  input[type="number"]:disabled { color: var(--text-faint); }
+
+  select {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 0.82rem;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    padding: 5px 8px;
+  }
+
+  input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; }
+  input[type="radio"] { accent-color: var(--accent); }
+
+  .hint {
+    font-size: 0.72rem;
+    color: var(--text-faint);
+    margin-top: 2px;
+  }
+
+  /* ---- Channel toggles: patch-bay style ---- */
+  .channel-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .channel-cb {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px 6px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--hairline);
+    background: var(--panel-raised);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  .channel-cb .led {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--led-off);
+    flex-shrink: 0;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+  }
+  .channel-cb.active { color: var(--text); border-color: var(--chan-color, var(--hairline)); }
+  .channel-cb.active .led {
+    background: var(--chan-color, var(--led-on));
+    box-shadow: 0 0 6px var(--chan-color, var(--led-on));
+  }
+  .channel-cb input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+  /* ---- Chart ---- */
+  /* Omslutande ram med padding — Dygraph kräver att dess eget div är padding-fritt,
+     annars räknar det fel på canvas-storleken och varnar/missköter sig. */
+  #chart-frame {
+    background: #ffffff;   /* KRAV: grafytan ska vara vit */
+    padding: 12px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+  }
+  #chart-container {
+    height: 480px;
+    width: 100%;
+  }
+
+  /* ---- Readout: digital-instrument display ---- */
+  #cursor-info {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 14px;
+    padding: 14px 18px;
+    background: #0d1a17;
+    border: 1px solid var(--accent-dim);
+    border-radius: var(--radius);
+    font-family: 'IBM Plex Mono', monospace;
+  }
+  #cursor-info .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--cursor-color, var(--accent));
+    box-shadow: 0 0 8px var(--cursor-color, var(--accent));
+    flex-shrink: 0;
+  }
+  #cursor-info .readout-text {
+    color: var(--accent);
+    font-size: 0.95rem;
+    letter-spacing: 0.02em;
+    text-shadow: 0 0 10px rgba(79,214,196,0.35);
+  }
+  #cursor-info .readout-text .idle {
+    color: var(--text-faint);
+    text-shadow: none;
+  }
+  #cursor-info .readout-text b { color: #fff; }
+
+  #status-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--text-faint);
+  }
+  #status-line .live-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--led-off);
+    display: inline-block;
+    margin-right: 6px;
+  }
+  #status-line.live .live-dot {
+    background: var(--led-on);
+    box-shadow: 0 0 6px var(--led-on);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #status-line.live .live-dot { animation: none; }
+  }
+
+  @media (max-width: 700px) {
+    body { padding: 14px; }
+    .controls { gap: 14px; }
+    #chart-frame { padding: 8px; }
+    #chart-container { height: 340px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <div class="nameplate">
+    <h1>Graph<span>Viewer</span></h1>
+    <div class="tag">WEB · 8-CH · REV 2</div>
+  </div>
+
+  <!-- Kontrollpanel -->
+  <div class="panel">
+    <p class="panel-label">Datakälla &amp; avläsning</p>
+    <div class="controls">
+      <div class="field">
+        <input type="file" id="fileInput" accept=".txt">
+      </div>
+
+      <div class="field">
+        <button id="btnReadOnce">Läs nu</button>
+      </div>
+
+      <div class="field">
+        <input type="checkbox" id="cbRepeat"> Repetera var:
+        <input type="number" id="numInterval" value="1000" min="200" step="100"> ms
+      </div>
+    </div>
+    <p class="hint">Repeterande läsning läser om samma filval upprepade gånger — filbläddraren fångar inte automatiskt upp ändringar på disk, så för en växande loggfil kan ett nytt filval krävas ibland.</p>
+  </div>
+
+  <div class="panel">
+    <p class="panel-label">Visning</p>
+    <div class="controls">
+      <div class="field">
+        <b>X-axel:</b>
+        <input type="radio" name="xAxisType" value="sample" checked id="rSample"> <label for="rSample">Sampel</label>
+        <input type="radio" name="xAxisType" value="time" id="rTime"> <label for="rTime">Tid</label>
+      </div>
+
+      <div class="field">
+        <b>Y-skala:</b>
+        <input type="checkbox" id="cbAutoY" checked> <label for="cbAutoY">Autoscale</label>
+        <span id="fixedYInputs" style="display:none;">
+          Min: <input type="number" id="minY" value="0" step="0.1">
+          Max: <input type="number" id="maxY" value="1" step="0.1">
+        </span>
+      </div>
+
+      <div class="field">
+        <b>Styrande kanal:</b>
+        <select id="selectControlChannel"></select>
+      </div>
+
+      <button id="btnResetZoom">Återställ zoom</button>
+    </div>
+  </div>
+
+  <!-- Kryssrutor för att tända/släcka grafer -->
+  <div class="panel">
+    <p class="panel-label">Tänd / släck grafer</p>
+    <div id="channelBox" class="channel-toggles"></div>
+  </div>
+
+  <!-- Grafytan och linjalavläsning -->
+  <div class="panel">
+    <div id="chart-frame">
+      <div id="chart-container"></div>
+    </div>
+    <div id="cursor-info">
+      <span class="dot"></span>
+      <span class="readout-text"><span class="idle">Flytta markören över grafen för mätlinjal…</span></span>
+    </div>
+    <div id="status-line">
+      <span><span class="live-dot"></span><span id="statusText">Väntar på fil</span></span>
+      <span id="lastRead"></span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // KRAV: MS Excel Standard 8 färger
+  const excelColors = ["#4472C4", "#ED7D31", "#A5A5A5", "#FFC000", "#5B9BD5", "#70AD47", "#264478", "#9E480E"];
+  const channelNames = ["Kanal 1", "Kanal 2", "Kanal 3", "Kanal 4", "Kanal 5", "Kanal 6", "Kanal 7", "Kanal 8"];
+  const MIN_INTERVAL_MS = 200;
+
+  let g = null; // Dygraph-instans
+  let rawDataRows = [];
+  let repeatIntervalId = null;
+
+  // UI-referenser
+  const fileInput = document.getElementById('fileInput');
+  const channelBox = document.getElementById('channelBox');
+  const selectCtrl = document.getElementById('selectControlChannel');
+  const cursorInfo = document.getElementById('cursor-info');
+  const cursorText = cursorInfo.querySelector('.readout-text');
+  const cursorDot = cursorInfo.querySelector('.dot');
+  const statusLine = document.getElementById('status-line');
+  const statusText = document.getElementById('statusText');
+  const lastRead = document.getElementById('lastRead');
+  const numInterval = document.getElementById('numInterval');
+
+  // Generera kontroller för kanaler dynamiskt
+  channelNames.forEach((name, i) => {
+    // Kryssrutor för synlighet, stil: patch-bay-knapp med LED
+    let label = document.createElement('label');
+    label.className = 'channel-cb active';
+    label.style.setProperty('--chan-color', excelColors[i]);
+    label.innerHTML = `<input type="checkbox" checked value="${i}"><span class="led"></span>${name}`;
+    label.querySelector('input').addEventListener('change', (e) => {
+      label.classList.toggle('active', e.target.checked);
+      updateVisibility();
+    });
+    channelBox.appendChild(label);
+
+    // Alternativ i dropdown för mätlinjal
+    let opt = document.createElement('option');
+    opt.value = i;
+    opt.innerText = name;
+    selectCtrl.appendChild(opt);
+  });
+
+  // Eventlisteners för inställningar
+  document.getElementById('rSample').addEventListener('change', updateGraph);
+  document.getElementById('rTime').addEventListener('change', updateGraph);
+  document.getElementById('btnReadOnce').addEventListener('click', handleFileRead);
+  document.getElementById('btnResetZoom').addEventListener('click', () => g && g.resetZoom());
+
+  const cbAutoY = document.getElementById('cbAutoY');
+  const minYInput = document.getElementById('minY');
+  const maxYInput = document.getElementById('maxY');
+  cbAutoY.addEventListener('change', () => {
+    document.getElementById('fixedYInputs').style.display = cbAutoY.checked ? 'none' : 'inline';
+    updateGraph();
+  });
+  minYInput.addEventListener('input', updateGraph);
+  maxYInput.addEventListener('input', updateGraph);
+
+  // Hantera repeterande läsning
+  const cbRepeat = document.getElementById('cbRepeat');
+  cbRepeat.addEventListener('change', () => {
+    if (cbRepeat.checked) {
+      const ms = Math.max(MIN_INTERVAL_MS, parseInt(numInterval.value) || 1000);
+      numInterval.value = ms;
+      repeatIntervalId = setInterval(handleFileRead, ms);
+      statusLine.classList.add('live');
+      statusText.textContent = 'Läser repeterande';
+    } else {
+      clearInterval(repeatIntervalId);
+      statusLine.classList.remove('live');
+      statusText.textContent = rawDataRows.length ? 'Pausad' : 'Väntar på fil';
+    }
+  });
+  numInterval.addEventListener('change', () => {
+    const v = Math.max(MIN_INTERVAL_MS, parseInt(numInterval.value) || MIN_INTERVAL_MS);
+    numInterval.value = v;
+    if (cbRepeat.checked) {
+      clearInterval(repeatIntervalId);
+      repeatIntervalId = setInterval(handleFileRead, v);
+    }
+  });
+
+  // Läser filen helt utan att låsa (File API läser en ögonblicksbild direkt in i RAM)
+  function handleFileRead() {
+    const file = fileInput.files[0];
+    if (!file) {
+      statusText.textContent = 'Ingen fil vald';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const skipped = parseTextData(e.target.result);
+      updateGraph();
+      const now = new Date();
+      lastRead.textContent = 'Senast läst ' + now.toLocaleTimeString('sv-SE');
+      statusText.textContent = skipped > 0
+        ? `${rawDataRows.length} rader inlästa (${skipped} hoppade över)`
+        : `${rawDataRows.length} rader inlästa`;
+    };
+    reader.onerror = function() {
+      statusText.textContent = 'Fel: kunde inte läsa filen';
+      statusLine.classList.remove('live');
+    };
+    reader.readAsText(file);
+  }
+
+  // Parsar textfilsformatet (Data separerad med |). Returnerar antal överhoppade rader.
+  function parseTextData(text) {
+    const lines = text.split('\n');
+    rawDataRows = [];
+    let skipped = 0;
+
+    lines.forEach(line => {
+      let t = line.trim();
+      if (!t || t.startsWith('Dato') || t.startsWith('-')) return;
+
+      let tokens = t.split('|');
+      if (tokens.length >= 9) {
+        let timeStr = tokens[0].trim();
+        let channels = [];
+        let rowOk = true;
+        for (let i = 0; i < 8; i++) {
+          let v = parseFloat(tokens[i + 1].trim());
+          if (Number.isNaN(v)) rowOk = false;
+          channels.push(v);
+        }
+        if (rowOk) {
+          rawDataRows.push({ timeStr, channels });
+        } else {
+          skipped++;
+        }
+      } else {
+        skipped++;
+      }
+    });
+    return skipped;
+  }
+
+  // Bygger och uppdaterar grafen
+  function updateGraph() {
+    if (rawDataRows.length === 0) return;
+
+    const useTime = document.getElementById('rTime').checked;
+    const graphData = [];
+
+    rawDataRows.forEach((row, index) => {
+      // X-axel: Antal sampel eller tidsstämpel konverterad till Date-objekt
+      let x = useTime ? new Date(row.timeStr.replace(' ', 'T')) : index;
+      graphData.push([x, ...row.channels]);
+    });
+
+    // Validera fast Y-skala; falla tillbaka till autoscale om värdena inte går att tolka
+    let valueRange = null;
+    if (!cbAutoY.checked) {
+      const minV = parseFloat(minYInput.value);
+      const maxV = parseFloat(maxYInput.value);
+      if (!Number.isNaN(minV) && !Number.isNaN(maxV) && minV < maxV) {
+        valueRange = [minV, maxV];
+      }
+    }
+
+    const options = {
+      labels: ["X", ...channelNames], // KRAV: Namn i färgförklaring/Legend
+      colors: excelColors,            // KRAV: Excel-färger
+      drawPoints: false,
+      gridLineColor: '#eee',
+      xlabel: useTime ? 'Tid' : 'Sampel',
+      // KRAV: Inbyggd mätlinjal (Crosshair/hårkors aktiveras via highlightCallback)
+      highlightCallback: function(event, x, points, row) {
+        let targetChIndex = parseInt(selectCtrl.value);
+        let selectedPoint = points.find(p => p.name === channelNames[targetChIndex]);
+
+        if (selectedPoint) {
+          let xDisplay = useTime ? rawDataRows[row].timeStr : x;
+          cursorDot.style.setProperty('--cursor-color', excelColors[targetChIndex]);
+          cursorText.innerHTML =
+            `<b>${channelNames[targetChIndex]}</b> &nbsp;X: ${xDisplay} &nbsp;·&nbsp; Y: ${selectedPoint.yval}`;
+        }
+      },
+      unhighlightCallback: function() {
+        cursorDot.style.setProperty('--cursor-color', 'var(--accent)');
+        cursorText.innerHTML = '<span class="idle">Flytta markören över grafen för mätlinjal…</span>';
+      },
+      // KRAV: Autoscale vs fast skalning på Y
+      valueRange: valueRange
+    };
+
+    if (g === null) {
+      // Skapa diagrammet första gången
+      g = new Dygraph(document.getElementById('chart-container'), graphData, options);
+    } else {
+      // Uppdatera befintligt diagram
+      g.updateOptions({ file: graphData, ...options });
+    }
+    updateVisibility();
+  }
+
+  // KRAV: Tända och släcka grafer
+  function updateVisibility() {
+    if (!g) return;
+    const checkboxes = channelBox.querySelectorAll('input');
+    checkboxes.forEach((cb) => {
+      g.setVisibility(parseInt(cb.value), cb.checked);
+    });
+  }
+</script>
+
+</body>
+</html>
