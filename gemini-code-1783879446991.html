@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GraphViewer - Web Version</title>
+    
+    <!-- Importera Dygraphs för kraftfull dataplottning och mätlinjal -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/dygraph/2.2.1/dygraph.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dygraph/2.2.1/dygraph.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            align-items: center;
+        }
+        /* KRAV: Grafytan ska vara vit */
+        #chart-container {
+            background: white;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            height: 500px;
+            width: 100%;
+        }
+        .channel-toggles {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .channel-cb {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            border-radius: 4px;
+            color: white;
+            font-weight: bold;
+        }
+        .input-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        input[type="number"] {
+            width: 60px;
+            padding: 4px;
+        }
+        #cursor-info {
+            font-size: 1.1em;
+            font-weight: bold;
+            padding: 10px;
+            background: #eef7ff;
+            border-left: 4px solid #4472C4;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>GraphViewer — WebApp Edition</h2>
+
+    <!-- Kontrollpanel -->
+    <div class="panel controls">
+        <!-- KRAV: Välja textfil via browser -->
+        <div>
+            <input type="file" id="fileInput" accept=".txt">
+        </div>
+
+        <!-- KRAV: Enkel vs Repeterande läsning -->
+        <div class="input-group">
+            <button id="btnReadOnce">Läs nu</button>
+            <input type="checkbox" id="cbRepeat"> Repetera var:
+            <input type="number" id="numInterval" value="1000"> ms
+        </div>
+
+        <!-- KRAV: Val av horisontell axel (Sampel eller Tid) -->
+        <div>
+            <label><b>X-Axel:</b></label>
+            <input type="radio" name="xAxisType" value="sample" checked id="rSample"> Sampel
+            <input type="radio" name="xAxisType" value="time" id="rTime"> Tid
+        </div>
+
+        <!-- KRAV: Skalning (Autoscale vs Fast) -->
+        <div class="input-group">
+            <label><b>Y-Skala:</b></label>
+            <input type="checkbox" id="cbAutoY" checked> Autoscale
+            <span id="fixedYInputs" style="display:none;">
+                Min: <input type="number" id="minY" value="0" step="0.1"> 
+                Max: <input type="number" id="maxY" value="1" step="0.1">
+            </span>
+        </div>
+
+        <!-- KRAV: Välj styrande kanal för koordinater -->
+        <div class="input-group">
+            <label><b>Styrande kanal (Mätlinjal):</b></label>
+            <select id="selectControlChannel">
+                <!-- Fylls i dynamiskt -->
+            </select>
+        </div>
+        
+        <button id="btnResetZoom">Återställ zoom</button>
+    </div>
+
+    <!-- Kryssrutor för att tända/släcka grafer -->
+    <div class="panel">
+        <label><b>Tänd/Släck grafer:</b></label>
+        <div id="channelBox" class="channel-toggles"></div>
+    </div>
+
+    <!-- Grafytan och linjalavläsning -->
+    <div class="panel">
+        <div id="chart-container"></div>
+        <!-- KRAV: Flyttbar mätlinjal koordinat-utskrift -->
+        <div id="cursor-info">Flytta markören över grafen för mätlinjal...</div>
+    </div>
+</div>
+
+<script>
+    // KRAV: MS Excel Standard 8 färger
+    const excelColors = ["#4472C4", "#ED7D31", "#A5A5A5", "#FFC000", "#5B9BD5", "#70AD47", "#264478", "#9E480E"];
+    const channelNames = ["Kanal 1", "Kanal 2", "Kanal 3", "Kanal 4", "Kanal 5", "Kanal 6", "Kanal 7", "Kanal 8"];
+
+    let g = null; // Dygraph-instans
+    let rawDataRows = [];
+    let repeatIntervalId = null;
+
+    // UI-referenser
+    const fileInput = document.getElementById('fileInput');
+    const channelBox = document.getElementById('channelBox');
+    const selectCtrl = document.getElementById('selectControlChannel');
+    const cursorInfo = document.getElementById('cursor-info');
+
+    // Generera kontroller för kanaler dynamiskt
+    channelNames.forEach((name, i) => {
+        // Kryssrutor för synlighet
+        let label = document.createElement('label');
+        label.className = 'channel-cb';
+        label.style.backgroundColor = excelColors[i];
+        label.innerHTML = `<input type="checkbox" checked value="${i}"> ${name}`;
+        label.querySelector('input').addEventListener('change', updateVisibility);
+        channelBox.appendChild(label);
+
+        // Alternativ i dropdown för mätlinjal
+        let opt = document.createElement('option');
+        opt.value = i;
+        opt.innerText = name;
+        selectCtrl.appendChild(opt);
+    });
+
+    // Eventlisteners för inställningar
+    document.getElementById('rSample').addEventListener('change', updateGraph);
+    document.getElementById('rTime').addEventListener('change', updateGraph);
+    document.getElementById('btnReadOnce').addEventListener('click', handleFileRead);
+    document.getElementById('btnResetZoom').addEventListener('click', () => g && g.resetZoom());
+    
+    const cbAutoY = document.getElementById('cbAutoY');
+    cbAutoY.addEventListener('change', () => {
+        document.getElementById('fixedYInputs').style.display = cbAutoY.checked ? 'none' : 'inline';
+        updateGraph();
+    });
+    document.getElementById('minY').addEventListener('input', updateGraph);
+    document.getElementById('maxY').addEventListener('input', updateGraph);
+
+    // Hantera repeterande läsning
+    const cbRepeat = document.getElementById('cbRepeat');
+    cbRepeat.addEventListener('change', () => {
+        if (cbRepeat.checked) {
+            const ms = parseInt(document.getElementById('numInterval').value) || 1000;
+            repeatIntervalId = setInterval(handleFileRead, ms);
+        } else {
+            clearInterval(repeatIntervalId);
+        }
+    });
+
+    // Läser filen helt utan att låsa (File API läser en ögonblicksbild direkt in i RAM)
+    function handleFileRead() {
+        const file = fileInput.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            parseTextData(e.target.result);
+            updateGraph();
+        };
+        reader.readAsText(file);
+    }
+
+    // Parsar textfilsformatet (Data separerad med |)
+    function parseTextData(text) {
+        const lines = text.split('\n');
+        rawDataRows = [];
+
+        lines.forEach(line => {
+            let t = line.trim();
+            if (!t || t.startsWith('Dato') || t.startsWith('-')) return;
+
+            let tokens = t.split('|');
+            if (tokens.length >= 9) {
+                let timeStr = tokens[0].trim();
+                let channels = [];
+                for (let i = 0; i < 8; i++) {
+                    channels.push(parseFloat(tokens[i+1].trim()));
+                }
+                rawDataRows.push({ timeStr, channels });
+            }
+        });
+    }
+
+    // Bygger och uppdaterar grafen
+    function updateGraph() {
+        if (rawDataRows.length === 0) return;
+
+        const useTime = document.getElementById('rTime').checked;
+        const graphData = [];
+
+        rawDataRows.forEach((row, index) => {
+            // X-axel: Antal sampel eller tidsstämpel konverterad till Date-objekt
+            let x = useTime ? new Date(row.timeStr.replace(' ', 'T')) : index;
+            graphData.push([x, ...row.channels]);
+        });
+
+        const options = {
+            labels: ["X", ...channelNames], // KRAV: Namn i färgförklaring/Legend
+            colors: excelColors,            // KRAV: Excel-färger
+            drawPoints: false,
+            gridLineColor: '#eee',
+            // KRAV: Inbyggd mätlinjal (Crosshair/hårkors aktiveras via highlightCallback)
+            highlightCallback: function(event, x, points, row) {
+                let targetChIndex = parseInt(selectCtrl.value);
+                let selectedPoint = points.find(p => p.name === channelNames[targetChIndex]);
+                
+                if (selectedPoint) {
+                    let xDisplay = useTime ? rawDataRows[row].timeStr : x;
+                    cursorInfo.innerHTML = `Mätlinjal (${channelNames[targetChIndex]}) ➔ X: ${xDisplay} | Y: ${selectedPoint.yval}`;
+                }
+            },
+            // KRAV: Autoscale vs fast skalning på Y
+            valueRange: cbAutoY.checked ? null : [
+                parseFloat(document.getElementById('minY').value), 
+                parseFloat(document.getElementById('maxY').value)
+            ]
+        };
+
+        if (g === null) {
+            // Skapa diagrammet första gången
+            g = new Dygraph(document.getElementById('chart-container'), graphData, options);
+        } else {
+            // Uppdatera befintligt diagram
+            g.updateOptions({ file: graphData, ...options });
+        }
+        updateVisibility();
+    }
+
+    // KRAV: Tända och släcka grafer
+    function updateVisibility() {
+        if (!g) return;
+        const checkboxes = channelBox.querySelectorAll('input');
+        checkboxes.forEach((cb) => {
+            g.setVisibility(parseInt(cb.value), cb.checked);
+        });
+    }
+</script>
+
+</body>
+</html>
